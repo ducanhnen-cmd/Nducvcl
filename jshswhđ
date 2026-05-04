@@ -1,0 +1,300 @@
+local library = loadstring(game:HttpGet("https://raw.githubusercontent.com/liebertsx/Tora-Library/main/src/librarynew",true))()
+local tab = library:CreateWindow("NducNo1")
+local folder = tab:AddFolder("Kill Aura")
+
+-- Kill Aura - Tự động quét và tấn công tất cả
+local AttackRange = 800
+local AttackCooldown = 0.1
+local KillAuraEnabled = false
+local DamageMultiplier = 1
+local AutoScan = true -- Tự động quét
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+local Workspace = game:GetService("Workspace")
+local RS = game:GetService("ReplicatedStorage")
+
+-- Lưu trữ tất cả remote và mục tiêu đã quét
+local AllHitRemotes = {}
+local AllTargets = {}
+local AllMobFolders = {}
+
+-- Nút bật/tắt Kill Aura
+folder:AddToggle({
+    text = "Bật/Tắt Kill Aura",
+    flag = "killaura_toggle",
+    callback = function(v)
+        KillAuraEnabled = v
+        if v then
+            print("[Kill Aura] Đã BẬT")
+        else
+            print("[Kill Aura] Đã TẮT")
+        end
+    end
+})
+
+-- Slider chỉnh sức mạnh
+folder:AddSlider({
+    text = "Sức Mạnh",
+    min = 1,
+    max = 100,
+    dual = false,
+    type = "slider",
+    flag = "damage_slider",
+    callback = function(v)
+        DamageMultiplier = v
+        print("[Kill Aura] Sức mạnh: x" .. v)
+    end
+})
+
+-- Slider chỉnh tầm đánh
+folder:AddSlider({
+    text = "Tầm Đánh",
+    min = 100,
+    max = 5000,
+    dual = false,
+    type = "slider",
+    flag = "range_slider",
+    callback = function(v)
+        AttackRange = v
+        print("[Kill Aura] Tầm đánh: " .. v)
+    end
+})
+
+-- Slider chỉnh tốc độ đánh
+folder:AddSlider({
+    text = "Tốc Độ Đánh",
+    min = 0.1,
+    max = 2,
+    dual = false,
+    type = "slider",
+    flag = "speed_slider",
+    callback = function(v)
+        AttackCooldown = v
+        print("[Kill Aura] Tốc độ đánh: " .. v .. "s")
+    end
+})
+
+-- Hàm quét TẤT CẢ remote
+local function scanAllRemotes()
+    AllHitRemotes = {}
+    print("[Auto Scan] Đang quét tất cả Remote...")
+    
+    for _, obj in pairs(RS:GetDescendants()) do
+        if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
+            table.insert(AllHitRemotes, obj)
+            print("[Auto Scan] Remote: " .. obj:GetFullName())
+        end
+    end
+    
+    print("[Auto Scan] Đã tìm thấy " .. #AllHitRemotes .. " Remote")
+    
+    -- Quét thêm trong các folder con của player
+    pcall(function()
+        for _, obj in pairs(LocalPlayer:GetDescendants()) do
+            if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
+                table.insert(AllHitRemotes, obj)
+                print("[Auto Scan] Player Remote: " .. obj:GetFullName())
+            end
+        end
+    end)
+end
+
+-- Hàm quét TẤT CẢ thư mục chứa mob
+local function scanAllFolders()
+    AllMobFolders = {}
+    print("[Auto Scan] Đang quét tất cả thư mục...")
+    
+    -- Quét toàn bộ workspace
+    for _, child in pairs(Workspace:GetChildren()) do
+        if child:IsA("Folder") or child:IsA("Model") then
+            local name = child.Name:lower()
+            if name:find("mob") or name:find("npc") or name:find("enemy") or 
+               name:find("monster") or name:find("boss") or name:find("creature") or
+               name:find("resource") or name:find("node") or name:find("ore") or
+               name:find("tree") or name:find("rock") or name:find("grass") or
+               name:find("farm") or name:find("spawn") or name:find("entity") then
+                table.insert(AllMobFolders, child)
+                print("[Auto Scan] Thư mục: " .. child:GetFullName())
+            end
+        end
+    end
+    
+    -- Nếu không tìm thấy thư mục cụ thể, dùng toàn bộ workspace
+    if #AllMobFolders == 0 then
+        print("[Auto Scan] Không tìm thấy thư mục mob, dùng toàn bộ Workspace")
+        table.insert(AllMobFolders, Workspace)
+    end
+    
+    print("[Auto Scan] Đã tìm thấy " .. #AllMobFolders .. " thư mục mục tiêu")
+end
+
+-- Hàm quét TẤT CẢ mục tiêu
+local function scanAllTargets()
+    local targets = {}
+    local char = LocalPlayer.Character
+    if not char then return targets end
+    
+    -- Quét trong tất cả thư mục đã tìm
+    for _, folder in pairs(AllMobFolders) do
+        if folder and folder:IsA("Instance") then
+            for _, obj in pairs(folder:GetDescendants()) do
+                if obj:IsA("Model") and obj ~= char then
+                    local hum = obj:FindFirstChildOfClass("Humanoid")
+                    local hrp = obj:FindFirstChild("HumanoidRootPart") or 
+                                obj:FindFirstChild("Head") or 
+                                obj:FindFirstChild("Torso") or
+                                obj:FindFirstChild("UpperTorso")
+                    
+                    if hum and hum.Health > 0 and hrp then
+                        table.insert(targets, {
+                            model = obj,
+                            humanoid = hum,
+                            rootPart = hrp
+                        })
+                    end
+                end
+            end
+        end
+    end
+    
+    return targets
+end
+
+-- Hàm tấn công mục tiêu - thử TẤT CẢ các cách
+local function attackTarget(target)
+    -- Cách 1: Gửi tất cả remote
+    for _, remote in pairs(AllHitRemotes) do
+        pcall(function()
+            remote:FireServer(target.model)
+            remote:FireServer(target.rootPart.Position)
+            remote:FireServer(target.humanoid)
+            remote:FireServer(target.model, target.humanoid)
+            remote:FireServer(target.rootPart.Position, target.model)
+        end)
+    end
+    
+    -- Cách 2: Kích hoạt tool/vũ khí
+    pcall(function()
+        local char = LocalPlayer.Character
+        if char then
+            for _, tool in pairs(char:GetChildren()) do
+                if tool:IsA("Tool") then
+                    tool:Activate()
+                end
+            end
+        end
+        
+        local backpack = LocalPlayer:FindFirstChild("Backpack")
+        if backpack then
+            for _, tool in pairs(backpack:GetChildren()) do
+                if tool:IsA("Tool") then
+                    -- Equip tool nếu có thể
+                    pcall(function()
+                        tool.Parent = char
+                        tool:Activate()
+                    end)
+                end
+            end
+        end
+    end)
+    
+    -- Cách 3: Click chuột
+    pcall(function()
+        local mouse = LocalPlayer:GetMouse()
+        mouse:Button1Down()
+        wait(0.01)
+        mouse:Button1Up()
+    end)
+    
+    -- Cách 4: Trực tiếp giảm máu
+    if DamageMultiplier > 1 then
+        pcall(function()
+            local damage = DamageMultiplier * 10
+            target.humanoid.Health = target.humanoid.Health - damage
+            target.humanoid:TakeDamage(damage)
+        end)
+    end
+end
+
+-- Quét ban đầu
+scanAllRemotes()
+scanAllFolders()
+
+-- Tự động quét lại mỗi 5 giây khi có thay đổi
+spawn(function()
+    while true do
+        wait(5)
+        if AutoScan then
+            scanAllRemotes()
+            scanAllFolders()
+        end
+    end
+end)
+
+-- Theo dõi khi có object mới xuất hiện
+Workspace.DescendantAdded:Connect(function(descendant)
+    if descendant:IsA("RemoteEvent") or descendant:IsA("RemoteFunction") then
+        table.insert(AllHitRemotes, descendant)
+        print("[Auto Scan] Remote mới: " .. descendant:GetFullName())
+    end
+    
+    if descendant:IsA("Folder") or descendant:IsA("Model") then
+        local name = descendant.Name:lower()
+        if name:find("mob") or name:find("npc") or name:find("enemy") or
+           name:find("monster") or name:find("boss") then
+            if not table.find(AllMobFolders, descendant) then
+                table.insert(AllMobFolders, descendant)
+                print("[Auto Scan] Thư mục mới: " .. descendant:GetFullName())
+            end
+        end
+    end
+end)
+
+local lastAttackTime = 0
+
+-- Vòng lặp chính
+RunService.Heartbeat:Connect(function()
+    if not KillAuraEnabled then return end
+    
+    local now = tick()
+    if now - lastAttackTime < AttackCooldown then return end
+    
+    lastAttackTime = now
+    
+    -- Quét mục tiêu mới mỗi lần tấn công
+    local targets = scanAllTargets()
+    
+    if #targets > 0 then
+        local char = LocalPlayer.Character
+        if not char then return end
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+        
+        local attackedCount = 0
+        
+        -- Tấn công TẤT CẢ mục tiêu trong tầm
+        for _, target in pairs(targets) do
+            local dist = (hrp.Position - target.rootPart.Position).Magnitude
+            if dist <= AttackRange then
+                attackTarget(target)
+                attackedCount = attackedCount + 1
+            end
+        end
+        
+        if attackedCount > 0 then
+            print("[Kill Aura] Đã tấn công " .. attackedCount .. " mục tiêu | Remote: " .. #AllHitRemotes .. " | Folders: " .. #AllMobFolders)
+        end
+    end
+end)
+
+print("========================================")
+print("[Kill Aura] ĐÃ SẴN SÀNG!")
+print("[Kill Aura] Auto Scan: BẬT")
+print("[Kill Aura] Remote tìm thấy: " .. #AllHitRemotes)
+print("[Kill Aura] Thư mục tìm thấy: " .. #AllMobFolders)
+print("[Kill Aura] Bật Kill Aura để bắt đầu!")
+print("========================================")
+
+library:Init()
